@@ -740,20 +740,6 @@ elem* toElem(Expression e, ref IRState irs)
             }
         }
 
-        /* Check for @__ctfe functions - they cannot be referenced at runtime
-         */
-        if (FuncDeclaration fd = se.var.isFuncDeclaration())
-        {
-            if (auto tf = fd.type.isTypeFunction())
-            {
-                if (tf.isCtfeOnly)
-                {
-                    irs.eSink.error(se.loc, "function `%s` is `@__ctfe` and cannot be used at runtime", fd.toPrettyChars());
-                    return el_long(TYsize_t, 0);
-                }
-            }
-        }
-
         Symbol* s = toSymbolNRVO(se.var);
 
         // VarExp generated for `__traits(initSymbol, Aggregate)`?
@@ -4003,6 +3989,13 @@ elem* toElem(Expression e, ref IRState irs)
 
         //printf("IndexExp.toElem() %s\n", ie.toChars());
         Type t1 = ie.e1.type.toBasetype();
+
+        if (t1.isTypeNoreturn())
+        {
+            elem_setLoc(n1, ie.loc);
+            return n1;
+        }
+
         if (auto taa = t1.isTypeAArray())
         {
             assert(false, "no index lowering for associative array literal");

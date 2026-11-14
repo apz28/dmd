@@ -3321,7 +3321,7 @@ void checkOverriddenDtor(FuncDeclaration f, Scope* sc, Loc loc,
 }
 
 /********************************************
- * Print the reason why `fd` was inferred `@system` as a supplemental error
+ * Print the reason why `fd` failed to infer an attribute as a supplemental error
  * Params:
  *   fd = function to check
  *   maxDepth = up to how many functions deep to report errors
@@ -3330,6 +3330,13 @@ void checkOverriddenDtor(FuncDeclaration f, Scope* sc, Loc loc,
  *   eSink = where the error messages go
  */
 public void errorSupplementalInferredAttr(FuncDeclaration fd, int maxDepth, bool deprecation, STC stc, ErrorSink eSink)
+{
+    FuncDeclarations visited;
+    errorSupplementalInferredAttr(fd, maxDepth, deprecation, stc, eSink, visited);
+}
+
+private void errorSupplementalInferredAttr(FuncDeclaration fd, int maxDepth, bool deprecation,
+    STC stc, ErrorSink eSink, ref FuncDeclarations visited)
 {
     auto errorFunc = deprecation ? &eSink.deprecationSupplemental : &eSink.errorSupplemental;
 
@@ -3373,8 +3380,19 @@ public void errorSupplementalInferredAttr(FuncDeclaration fd, int maxDepth, bool
     {
         if (maxDepth > 0)
         {
+            // Include the starting declaration so the closing link is reported
+            // only once. Names can coincide for distinct template instances.
+            visited.push(fd);
+            foreach (previous; visited[])
+            {
+                if (s.fd is previous)
+                {
+                    errorFunc(s.loc, "which calls `%s`, completing a cycle in the diagnostic chain", s.fd.toErrMsg());
+                    return;
+                }
+            }
             errorFunc(s.loc, "which calls `%s`", s.fd.toErrMsg());
-            errorSupplementalInferredAttr(s.fd, maxDepth - 1, deprecation, stc, eSink);
+            errorSupplementalInferredAttr(s.fd, maxDepth - 1, deprecation, stc, eSink, visited);
         }
     }
     else
@@ -11226,6 +11244,12 @@ private extern (C++) final class ExpressionSemanticVisitor : Visitor
                 }
             }
 
+            if (t1b.ty == Tarray && tob.nextOf().size() == 0 && t1b.nextOf().size() != 0)
+            {
+                eSink.error(exp.loc, "cannot cast `%s` of type `%s` to `%s` with zero-size elements", exp.e1.toErrMsg(), exp.e1.type.toErrMsg(), exp.to.toErrMsg());
+                return setError();
+            }
+
             if(t1b.ty == Tarray && exp.e1.op != EXP.arrayLiteral && sc.needsCodegen())
             {
                 auto tFrom = t1b.nextOf();
@@ -11247,7 +11271,7 @@ private extern (C++) final class ExpressionSemanticVisitor : Visitor
 
                         // A runtime check is needed in case arrays don't line up.  That check should
                         // be done in the implementation of `object.__ArrayCast`
-                        if (toSize == 0 || (fromSize % toSize) != 0)
+                        if ((fromSize % toSize) != 0)
                         {
                             // lower to `object.__ArrayCast!(TFrom, TTo)(from)`
 
@@ -17686,6 +17710,24 @@ Expression toLvalue(Expression _this, Scope* sc, const(char)* action, Expression
             checkAddressable(ecopy.e2, sc, "take address of");
         }
         ecopy.type = _this.type.pointerTo();
+        if (isNoreturnExpression(_this.e1))
+        {
+            ecopy.e1 = specialNoreturnCast(ecopy.e1, ecopy.type);
+        }
+        else
+        {
+            ecopy.e1 = _this.e1.toLvalue(sc, action).addressOf();
+            checkAddressable(ecopy.e1, sc, "take address of");
+        }
+        if (isNoreturnExpression(_this.e2))
+        {
+            ecopy.e2 = specialNoreturnCast(ecopy.e2, ecopy.type);
+        }
+        else
+        {
+            ecopy.e2 = _this.e2.toLvalue(sc, action).addressOf();
+            checkAddressable(ecopy.e2, sc, "take address of");
+        }
         return new PtrExp(_this.loc, ecopy, _this.type);
 
     }

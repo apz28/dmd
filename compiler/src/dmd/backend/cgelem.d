@@ -1400,6 +1400,7 @@ private elem* elbitwise(elem* e, Goal goal)
                 {
                     elem* e11 = e1.E1;
                     e11.Ety = touns(e11.Ety) | (e11.Ety & ~mTYbasic);
+                    e1.Eoper = OPshr;
                     goto L1;
                 }
 
@@ -1440,6 +1441,7 @@ private elem* elbitwise(elem* e, Goal goal)
                 {
                     elem* e11 = e1.E1;
                     e11.Ety = touns(e11.Ety) | (e11.Ety & ~mTYbasic);
+                    e1.Eoper = OPshr;
                     goto L1;
                 }
 
@@ -5878,6 +5880,7 @@ beg:
                     if (!el_sideeffect(e2.E1))
                     {
                         e.Eoper = OPoror;
+                        e2.Ety = e2.E2.Ety;
                         e.E2 = el_selecte2(e2);
                         e.Ety = TYint;
                         goto beg;
@@ -5885,6 +5888,7 @@ beg:
                     else if (!el_sideeffect(e2.E2))
                     {
                         e.Eoper = OPandand;
+                        e2.Ety = e2.E1.Ety;
                         e.E2 = el_selecte1(e2);
                         e.Ety = TYint;
                         goto beg;
@@ -5896,11 +5900,13 @@ beg:
                     {
                         if (!e22)
                         {
+                            e.Ety = e.E1.Ety;
                             e = el_selecte1(e);
                             goto beg;
                         }
                         // Rewrite (e1 ? null : e22) as (e1 || e22)
                         e.Eoper = OPoror;
+                        e2.Ety = e2.E2.Ety;
                         e.E2 = el_selecte2(e2);
                         goto beg;
                     }
@@ -5908,6 +5914,7 @@ beg:
                     {
                         // Rewrite (e1 ? e21 : null) as (e1 && e21)
                         e.Eoper = OPandand;
+                        e2.Ety = e2.E1.Ety;
                         e.E2 = el_selecte1(e2);
                         goto beg;
                     }
@@ -6064,6 +6071,19 @@ beg:
             if (!leftgoal)
                 e.Ety = e1.Ety;
             return el_selecte1(e);
+        }
+
+        if (OTassign(op) &&
+            (tybasic(e1.Ety) == TYnoreturn ||
+             tybasic(e2.Ety) == TYnoreturn))
+        {
+            if (OTrtol(op)) // check defensively
+            {
+                e.E1 = e2;
+                e.E2 = e1;
+            }
+            e.Eoper = OPcomma;
+            goto beg;
         }
 
         if (op == OPparam && !goal)

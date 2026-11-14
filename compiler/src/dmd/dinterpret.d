@@ -114,6 +114,11 @@ public Expression ctfeInterpret(Expression e)
         tee.generateUncaughtError();
         result = CTFEExp.cantexp;
     }
+    else if (result.op == EXP.showCtfeContext)
+    {
+        global.errorSink.errorSupplemental(e.loc, "compile time context created here");
+        result = CTFEExp.cantexp;
+    }
     else
     {
         timeTraceBeginEvent(TimeTraceEventType.ctfeCopy);
@@ -1955,7 +1960,7 @@ public:
                 {
                     // Create a CTFE pointer &var
                     auto ve = ctfeEmplaceExp!VarExp(e.loc, e.var);
-                    ve.type = elemtype;
+                    ve.type = e.var.type;
                     emplaceExp!(AddrExp)(pue, e.loc, ve, e.type);
                     result = pue.exp();
                     return;
@@ -2137,6 +2142,11 @@ public:
                     v.inuse++;
                     v._init = v._init.initializerSemantic(v._scope, v.type, INITinterpret, global.errorSink); // might not be run on aggregate members
                     v.inuse--;
+                }
+                if (v._init.isVoidInitializer())
+                {
+                    eSink.error(loc, "cannot read uninitialized variable `%s` in CTFE", v.toErrMsg());
+                    return CTFEExp.cantexp;
                 }
                 e = interpretInitializerExpression(v);
                 if (!e)
@@ -4020,7 +4030,10 @@ public:
         else
         {
             // e1 has its own payload, so we have to create a new literal.
-            if (wantCopy)
+            // Static arrays are value types: assigning one must deep-copy the
+            // payload, otherwise both variables alias the same literal and
+            // mutating one is visible through the other.
+            if (wantCopy || t1b.ty == Tsarray)
                 newval = copyLiteral(newval).copy();
 
             if (t1b.ty == Tsarray && e.op == EXP.construct && e.e2.isLvalue())
@@ -7049,7 +7062,7 @@ private Expression interpret_aaDel(UnionExp* pue, InterState* istate, Expression
     if (exceptionOrCantInterpret(index))
         return index;
     if (agg.op == EXP.null_)
-        return CTFEExp.voidexp; //???
+        return IntegerExp.createBool(false);
 
     AssocArrayLiteralExp aae = agg.isAssocArrayLiteralExp();
     Expressions* keysx = aae.keys;
